@@ -33,6 +33,7 @@
   let drawingClipboard = null;
   let recordingSession = null;
   let isClosingDrawingAfterSave = false;
+  let suppressDialogReopenUntil = 0;
   const mediaObjectUrls = new Map();
   const mediaDbPromise = openMediaDatabase();
 
@@ -104,6 +105,7 @@
     addSetupScreenshotButton: document.getElementById("addSetupScreenshotButton"),
     setupLinks: document.getElementById("setupLinks"),
     drawingDialog: document.getElementById("drawingDialog"),
+    closeDrawingDialogButton: document.getElementById("closeDrawingDialogButton"),
     drawingTitle: document.getElementById("drawingTitle"),
     drawingImage: document.getElementById("drawingImage"),
     drawingCanvas: document.getElementById("drawingCanvas"),
@@ -833,7 +835,12 @@
       saveState();
     });
 
-    elements.undoStrokeButton.addEventListener("click", undoStroke);
+    const handleUndoAction = (event) => {
+      event?.preventDefault();
+      event?.stopPropagation();
+      undoStroke();
+    };
+    elements.undoStrokeButton.addEventListener("pointerdown", handleUndoAction);
     elements.clearDrawingButton.addEventListener("click", clearDrawing);
     elements.saveDrawingButton.addEventListener("click", saveDrawingMarkup);
     elements.markupTool.addEventListener("change", syncToolUi);
@@ -846,6 +853,43 @@
     elements.pasteItemButton.addEventListener("click", pasteClipboardItem);
     bindDrawingCanvasEvents();
     bindDrawingDialogShortcuts();
+    if (elements.drawingDialog) {
+      const closeDrawingDialog = () => {
+        const activePointerId = drawingSession?.activePointerId;
+        if (typeof activePointerId === "number") {
+          releaseDrawingPointerCapture(activePointerId);
+        }
+        suppressDialogReopenUntil = Date.now() + 260;
+        if (!elements.drawingDialog.open) {
+          return;
+        }
+        elements.drawingDialog.close();
+      };
+      if (elements.closeDrawingDialogButton) {
+        const handleCloseDrawingAction = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeDrawingDialog();
+        };
+        elements.closeDrawingDialogButton.addEventListener("click", handleCloseDrawingAction);
+      }
+      const drawingShell = elements.drawingDialog.querySelector(".drawing-shell");
+      if (drawingShell) {
+        drawingShell.addEventListener("submit", (event) => {
+          event.preventDefault();
+          closeDrawingDialog();
+        });
+      }
+      elements.drawingDialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeDrawingDialog();
+      });
+      elements.drawingDialog.addEventListener("click", (event) => {
+        if (event.target === elements.drawingDialog) {
+          closeDrawingDialog();
+        }
+      });
+    }
     elements.drawingDialog.addEventListener("close", () => {
       if (isClosingDrawingAfterSave || !drawingSession) {
         return;
@@ -853,15 +897,87 @@
       persistDrawingMarkup({ closeDialog: false });
     });
     if (elements.mediaPreviewDialog) {
+      const closeMediaPreviewDialog = () => {
+        if (elements.mediaPreviewDialog.open) {
+          elements.mediaPreviewDialog.close();
+          return;
+        }
+        closeMediaPreview();
+      };
+      const mediaPreviewShell = elements.mediaPreviewDialog.querySelector(".media-preview-shell");
+      if (mediaPreviewShell) {
+        mediaPreviewShell.addEventListener("submit", (event) => {
+          event.preventDefault();
+          closeMediaPreviewDialog();
+        });
+      }
+      if (elements.closeMediaPreviewButton) {
+        elements.closeMediaPreviewButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMediaPreviewDialog();
+        });
+      }
+      elements.mediaPreviewDialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeMediaPreviewDialog();
+      });
       elements.mediaPreviewDialog.addEventListener("click", (event) => {
         if (event.target === elements.mediaPreviewDialog) {
-          closeMediaPreview();
+          closeMediaPreviewDialog();
         }
       });
       elements.mediaPreviewDialog.addEventListener("close", () => {
         closeMediaPreview();
       });
     }
+    document.addEventListener("click", (event) => {
+      const path = event.composedPath ? event.composedPath() : [];
+      if (elements.drawingDialog?.open && elements.closeDrawingDialogButton && path.includes(elements.closeDrawingDialogButton)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const activePointerId = drawingSession?.activePointerId;
+        if (typeof activePointerId === "number") {
+          releaseDrawingPointerCapture(activePointerId);
+        }
+        suppressDialogReopenUntil = Date.now() + 260;
+        elements.drawingDialog.close();
+        return;
+      }
+      if (elements.mediaPreviewDialog?.open && elements.closeMediaPreviewButton && path.includes(elements.closeMediaPreviewButton)) {
+        event.preventDefault();
+        event.stopPropagation();
+        elements.mediaPreviewDialog.close();
+      }
+    }, true);
+
+    document.addEventListener("pointerdown", (event) => {
+      const isPointInsideRect = (element) => {
+        if (!element) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect();
+        return event.clientX >= rect.left
+          && event.clientX <= rect.right
+          && event.clientY >= rect.top
+          && event.clientY <= rect.bottom;
+      };
+
+      if (elements.drawingDialog?.open) {
+        if (isPointInsideRect(elements.undoStrokeButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          undoStroke();
+          return;
+        }
+      }
+
+      if (elements.mediaPreviewDialog?.open && isPointInsideRect(elements.closeMediaPreviewButton)) {
+        event.preventDefault();
+        event.stopPropagation();
+        elements.mediaPreviewDialog.close();
+      }
+    }, true);
     document.addEventListener("paste", handleGlobalImagePaste);
 
     if (elements.mainBackToTopButton) {
@@ -1104,6 +1220,7 @@
       name: file.name,
       mimeType: file.type || "image/png",
       sizeBytes: file.size,
+      previewWidth: 180,
       storage: "indexeddb",
       flattenedDataUrl: "",
       naturalWidth: 0,
@@ -1695,6 +1812,20 @@
     const shotCard = shotFragment.querySelector(".shot-card");
     shotCard.dataset.shotId = shot.id;
     bindShotDragEvents(shotCard, placement.testId, shot.id, placement.stepId || null);
+    const normalizeShotPreviewWidth = (value) => {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return 180;
+      }
+      return Math.min(520, Math.max(120, Math.round(numericValue / 10) * 10));
+    };
+    const applyShotPreviewWidth = (value) => {
+      const safeWidth = normalizeShotPreviewWidth(value);
+      shot.previewWidth = safeWidth;
+      shotCard.style.gridTemplateColumns = `${safeWidth}px minmax(0, 1fr)`;
+      return safeWidth;
+    };
+    const initialPreviewWidth = applyShotPreviewWidth(shot.previewWidth);
     const shotImage = shotFragment.querySelector(".shot-image");
     void (async () => {
       const src = await getShotDisplayUrl(shot);
@@ -1742,6 +1873,17 @@
       shot.reviewComment = reviewComment.value;
       saveState();
     });
+    const shotSizeRange = shotFragment.querySelector(".shot-size-range");
+    const shotSizeValue = shotFragment.querySelector(".shot-size-value");
+    if (shotSizeRange && shotSizeValue) {
+      shotSizeRange.value = String(initialPreviewWidth);
+      shotSizeValue.textContent = `${initialPreviewWidth}px`;
+      shotSizeRange.addEventListener("input", () => {
+        const safeWidth = applyShotPreviewWidth(shotSizeRange.value);
+        shotSizeValue.textContent = `${safeWidth}px`;
+        saveState();
+      });
+    }
     shotFragment.querySelector(".edit-shot").addEventListener("click", () => {
       openDrawingDialog(placement.testId, shot.id);
     });
@@ -2263,6 +2405,9 @@
   }
 
   async function openDrawingDialog(testId, shotId) {
+    if (Date.now() < suppressDialogReopenUntil) {
+      return;
+    }
     const shot = findShot(testId, shotId);
     if (!shot) {
       return;
@@ -2285,6 +2430,7 @@
       naturalHeight: shot.naturalHeight,
       items: structuredClone(shot.drawingItems || shot.drawingPaths || []),
       draftItem: null,
+      activePointerId: null,
       selectedIndex: -1,
       interactionMode: null,
       activeHandle: null,
@@ -2495,7 +2641,6 @@
       return;
     }
     event.preventDefault();
-    elements.drawingCanvas.setPointerCapture(event.pointerId);
     const point = getNaturalPoint(event);
     const tool = elements.markupTool.value;
 
@@ -2570,6 +2715,7 @@
       return;
     }
     event.preventDefault();
+    releaseDrawingPointerCapture(event.pointerId);
     const point = getNaturalPoint(event);
     if (drawingSession.interactionMode === "move" || drawingSession.interactionMode === "resize") {
       if (drawingSession.interactionMode === "move") {
@@ -2594,6 +2740,25 @@
     drawingSession.draftItem = null;
     drawingSession.dirty = true;
     redrawDrawingCanvas();
+  }
+
+  function releaseDrawingPointerCapture(pointerId) {
+    const canvas = elements.drawingCanvas;
+    if (!canvas || typeof canvas.releasePointerCapture !== "function") {
+      return;
+    }
+    if (typeof pointerId === "number") {
+      try {
+        if (!canvas.hasPointerCapture || canvas.hasPointerCapture(pointerId)) {
+          canvas.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Ignore pointer capture release issues from stale pointer ids.
+      }
+    }
+    if (drawingSession) {
+      drawingSession.activePointerId = null;
+    }
   }
 
   function createDraftItem(tool, point) {
@@ -2633,7 +2798,20 @@
   }
 
   function undoStroke() {
-    if (!drawingSession?.items.length) {
+    if (!drawingSession) {
+      return;
+    }
+    if (drawingSession.draftItem) {
+      drawingSession.draftItem = null;
+      drawingSession.snapGuides = [];
+      drawingSession.dirty = true;
+      redrawDrawingCanvas();
+      return;
+    }
+    if (!drawingSession.items.length) {
+      if (elements.saveStatus) {
+        elements.saveStatus.textContent = "Nothing to undo";
+      }
       return;
     }
     drawingSession.items.pop();
@@ -2806,7 +2984,7 @@
     })]).then(([portablePayload, ...sections]) => {
       const embeddedRunJson = serializePortablePayloadForHtml(portablePayload);
       const testMarkup = sections.join("");
-      const floatingNavStyles = `:root{--export-floating-nav-reserved-left:404px;} body.has-export-floating-nav{max-width:none !important;margin:24px 18px 40px var(--export-floating-nav-reserved-left) !important;} .export-floating-nav{position:fixed;left:18px;top:18px;width:min(356px,calc(100vw - 36px));max-height:calc(100vh - 36px);padding:14px;border-radius:16px;border:1px solid rgba(255,255,255,0.7);background:#fffdf8;box-shadow:0 10px 28px rgba(31,36,31,.12);backdrop-filter:blur(18px);z-index:1200;display:flex;flex-direction:column;gap:10px;overflow:hidden;} .export-floating-nav h3{margin:0;font-size:0.98rem;} .export-floating-nav-header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;} .export-floating-nav-body{flex:1;min-height:0;overflow-y:auto;padding-right:6px;} .export-floating-nav-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d3c7af;border-radius:10px;overflow:hidden;font-size:0.9rem;} .export-floating-nav-table thead{background:#f6f1e7;} .export-floating-nav-table th{padding:8px 10px;border-bottom:1px solid #d3c7af;text-align:left;font-weight:700;color:#1f241f;} .export-floating-nav-table th:first-child{width:50px;text-align:center;} .export-floating-nav-table th:last-child{width:100px;text-align:center;} .export-floating-nav-table td{padding:8px 10px;border-bottom:1px solid #eee3cf;vertical-align:top;} .export-floating-nav-table td:first-child{text-align:center;font-weight:600;width:50px;} .export-floating-nav-table td:last-child{text-align:center;width:100px;} .export-floating-nav-table a{color:#0c6c61;font-weight:700;text-decoration:none;} .export-floating-nav-table a:hover{text-decoration:underline;} .export-floating-nav-status{font-size:0.8rem;font-weight:700;border-radius:4px;padding:4px 6px;display:inline-block;} .export-floating-nav-status.status-passed{background:#e7f3ef;color:#0b5a4c;} .export-floating-nav-status.status-query{background:#fff1d6;color:#9a6200;} .export-floating-nav-status.status-failed{background:#fbe7e4;color:#8a3026;} .export-floating-nav-status.status-blocked,.export-floating-nav-status.status-cancelled{background:#ece8dd;color:#6d6a63;} @media (max-width:1560px){body.has-export-floating-nav{max-width:980px !important;margin:24px auto !important;padding:0 16px !important;} .export-floating-nav{width:min(320px,calc(100vw - 36px));}} @media print{.export-floating-nav{display:none;} body.has-export-floating-nav{margin:24px auto !important;}}`;
+      const floatingNavStyles = `:root{--export-floating-nav-reserved-left:404px;} body.has-export-floating-nav{max-width:none !important;margin:24px 18px 40px var(--export-floating-nav-reserved-left) !important;} .export-floating-nav{position:fixed;left:18px;top:18px;width:min(356px,calc(100vw - 36px));max-height:calc(100vh - 36px);padding:14px;border-radius:16px;border:1px solid rgba(255,255,255,0.7);background:#fffdf8;box-shadow:0 10px 28px rgba(31,36,31,.12);backdrop-filter:blur(18px);z-index:1200;display:flex;flex-direction:column;gap:10px;overflow:hidden;} .export-floating-nav h3{margin:0;font-size:0.98rem;} .export-floating-nav-header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;} .export-floating-nav-body{flex:1;min-height:0;overflow-y:auto;padding-right:6px;} .export-floating-nav-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d3c7af;border-radius:10px;overflow:hidden;font-size:0.9rem;} .export-floating-nav-table thead{background:#f6f1e7;} .export-floating-nav-table th{padding:8px 10px;border-bottom:1px solid #d3c7af;text-align:left;font-weight:700;color:#1f241f;} .export-floating-nav-table th:first-child{width:50px;text-align:center;} .export-floating-nav-table th:last-child{width:100px;text-align:center;} .export-floating-nav-table td{padding:8px 10px;border-bottom:1px solid #eee3cf;vertical-align:top;} .export-floating-nav-table td:first-child{text-align:center;font-weight:600;width:50px;} .export-floating-nav-table td:last-child{text-align:center;width:100px;} .export-floating-nav-table a{color:#0c6c61;font-weight:700;text-decoration:none;} .export-floating-nav-table a:hover{text-decoration:underline;} .export-floating-nav-status{font-size:0.8rem;font-weight:700;border-radius:4px;padding:4px 6px;display:inline-block;} .export-floating-nav-status.status-passed{background:#e7f3ef;color:#0b5a4c;} .export-floating-nav-status.status-query{background:#fff1d6;color:#9a6200;} .export-floating-nav-status.status-failed{background:#fbe7e4;color:#8a3026;} .export-floating-nav-status.status-blocked,.export-floating-nav-status.status-cancelled{background:#ece8dd;color:#6d6a63;} @media (max-width:1560px){body.has-export-floating-nav{max-width:980px !important;margin:24px auto !important;padding:0 16px !important;} .export-floating-nav{position:static;left:auto;top:auto;width:auto;max-height:none;margin:0 0 16px 0;}} @media print{.export-floating-nav{display:none;} body.has-export-floating-nav{margin:24px auto !important;}}`;
       const exportStyles = state.presentationMode
         ? floatingNavStyles + "body{font-family:Segoe UI,Tahoma,sans-serif;max-width:1080px;margin:28px auto;padding:0 24px;color:#1f241f;line-height:1.65;} h1{font-size:2.5rem;margin-bottom:8px;} h2{font-size:1.6rem;margin-top:28px;} h3{font-size:1.15rem;margin-top:22px;} section{box-shadow:0 8px 24px rgba(69,52,31,.08);background:#fffdf8;} figure{padding-bottom:10px;border-bottom:1px solid #e2d7c0;} figcaption{font-size:1rem;line-height:1.55;} a{cursor:pointer;color:#0c6c61;} .editable-field{display:inline-block;min-width:12px;padding:2px 4px;border-radius:6px;outline:1px dashed rgba(12,108,97,.35);outline-offset:2px;background:rgba(255,255,255,.55);} .export-scenario-field{display:inline-block;padding:8px 10px;background:#e8f3ff;border:1px solid #9cc4f2;border-radius:8px;} .export-uat-results-field{padding:4px 8px;background:#eef7f5;border:1px solid #9bcab9;border-radius:8px;} .export-step-field{display:inline-block;padding:6px 10px;background:#f1ffd6;border:1px solid #b7e27a;border-radius:8px;}"
         : floatingNavStyles + "body{font-family:Segoe UI,Tahoma,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#1f241f;} a{cursor:pointer;color:#0c6c61;} .editable-field{display:inline-block;min-width:12px;padding:2px 4px;border-radius:6px;outline:1px dashed rgba(12,108,97,.35);outline-offset:2px;background:rgba(255,255,255,.55);} .export-scenario-field{display:inline-block;padding:8px 10px;background:#e8f3ff;border:1px solid #9cc4f2;border-radius:8px;} .export-uat-results-field{padding:4px 8px;background:#eef7f5;border:1px solid #9bcab9;border-radius:8px;} .export-step-field{display:inline-block;padding:6px 10px;background:#f1ffd6;border:1px solid #b7e27a;border-radius:8px;}";
@@ -3538,15 +3716,56 @@
     window.alert("Excel library is unavailable right now. Exported CSV summary instead.");
   }
 
-  // Helper to save file with browser's native "Save As" dialog
-  function saveFileWithBrowserDialog(blob, suggestedFilename) {
+  function getPickerFileTypeOptions(suggestedFilename, blobType) {
+    const extension = suggestedFilename.includes(".")
+      ? `.${suggestedFilename.split(".").pop().toLowerCase()}`
+      : "";
+    const mimeType = blobType || "application/octet-stream";
+    if (!extension) {
+      return [];
+    }
+    return [{
+      description: `${extension.toUpperCase().slice(1)} file`,
+      accept: {
+        [mimeType]: [extension]
+      }
+    }];
+  }
+
+  function fallbackDownload(blob, suggestedFilename) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = suggestedFilename;
     anchor.click();
-    // Revoke URL after a brief delay to allow browser to process
     setTimeout(() => URL.revokeObjectURL(url), 500);
+  }
+
+  // Uses native picker when available so users can choose save location/name.
+  function saveFileWithBrowserDialog(blob, suggestedFilename) {
+    if (typeof window.showSaveFilePicker !== "function") {
+      fallbackDownload(blob, suggestedFilename);
+      return;
+    }
+
+    const pickerTypes = getPickerFileTypeOptions(suggestedFilename, blob.type);
+    void (async () => {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: suggestedFilename,
+          types: pickerTypes.length ? pickerTypes : undefined
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return;
+        }
+        console.warn("Native save picker failed, using browser download fallback.", error);
+        fallbackDownload(blob, suggestedFilename);
+      }
+    })();
   }
 
   async function buildPortableExportState() {
