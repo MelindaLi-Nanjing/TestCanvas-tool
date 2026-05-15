@@ -931,27 +931,8 @@
         closeMediaPreview();
       });
     }
-    document.addEventListener("click", (event) => {
-      const path = event.composedPath ? event.composedPath() : [];
-      if (elements.drawingDialog?.open && elements.closeDrawingDialogButton && path.includes(elements.closeDrawingDialogButton)) {
-        event.preventDefault();
-        event.stopPropagation();
-        const activePointerId = drawingSession?.activePointerId;
-        if (typeof activePointerId === "number") {
-          releaseDrawingPointerCapture(activePointerId);
-        }
-        suppressDialogReopenUntil = Date.now() + 260;
-        elements.drawingDialog.close();
-        return;
-      }
-      if (elements.mediaPreviewDialog?.open && elements.closeMediaPreviewButton && path.includes(elements.closeMediaPreviewButton)) {
-        event.preventDefault();
-        event.stopPropagation();
-        elements.mediaPreviewDialog.close();
-      }
-    }, true);
-
     document.addEventListener("pointerdown", (event) => {
+      const path = event.composedPath ? event.composedPath() : [];
       const isPointInsideRect = (element) => {
         if (!element) {
           return false;
@@ -964,6 +945,17 @@
       };
 
       if (elements.drawingDialog?.open) {
+        if (elements.closeDrawingDialogButton && path.includes(elements.closeDrawingDialogButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const activePointerId = drawingSession?.activePointerId;
+          if (typeof activePointerId === "number") {
+            releaseDrawingPointerCapture(activePointerId);
+          }
+          suppressDialogReopenUntil = Date.now() + 260;
+          elements.drawingDialog.close();
+          return;
+        }
         if (isPointInsideRect(elements.undoStrokeButton)) {
           event.preventDefault();
           event.stopPropagation();
@@ -972,7 +964,7 @@
         }
       }
 
-      if (elements.mediaPreviewDialog?.open && isPointInsideRect(elements.closeMediaPreviewButton)) {
+      if (elements.mediaPreviewDialog?.open && elements.closeMediaPreviewButton && path.includes(elements.closeMediaPreviewButton)) {
         event.preventDefault();
         event.stopPropagation();
         elements.mediaPreviewDialog.close();
