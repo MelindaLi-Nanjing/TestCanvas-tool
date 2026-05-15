@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TestCanvas</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Local-first prototype</p>
+        <h1>TestCanvas</h1>
+        <p class="subtitle">Capture tests, attach screenshots, dictate annotations, and export a consolidated run summary.</p>
+      </div>
+      <div class="hero-actions">
+        <button id="saveRunButton" class="ghost">Save</button>
+        <button id="restoreSnapshotButton" class="ghost">Restore Last Snapshot</button>
+        <button id="exportJsonButton" class="ghost">Export Run JSON</button>
+        <button id="importJsonButton" class="ghost">Load Run File</button>
+        <button id="importExcelButton" class="ghost">Upload Excel/CSV</button>
+        <button id="downloadExcelTemplateButton" class="ghost">Download Excel Template</button>
+        <button id="exportMediaButton" class="ghost">Export Media</button>
+        <button id="reviewModeButton" class="ghost">Review Mode</button>
+        <button id="newRunButton" class="primary">New Test Run</button>
+        <button id="exportButton" class="secondary">Export Summary</button>
+        <button id="exportSummaryExcelButton" class="ghost">Export Summary Excel</button>
+      </div>
+    </header>
+
+    <div class="save-feedback-row">
+      <p id="saveStatus" class="shortcut-hint">Ready</p>
+      <div id="saveWarningBanner" class="save-warning-banner" hidden></div>
+    </div>
+
+    <main class="layout">
+      <aside class="panel sidebar">
+        <section class="meta-section">
+          <label class="field-label" for="versionDetails">Version / Build</label>
+          <textarea id="versionDetails" rows="6" placeholder="e.g. v1.2.0" style="margin-bottom:18px;resize:vertical;min-height:120px;"></textarea>
+          <section style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid rgba(211, 199, 175, 0.75);">
+            <h3 style="margin:0 0 12px;">Test Templates</h3>
+            <div id="templatesList" style="display:grid;gap:8px;"></div>
+            <p id="noTemplates" class="shortcut-hint" style="margin:12px 0 0;text-align:center;color:#aaa;">No templates yet</p>
+          </section>
+           <section id="setupSection" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid rgba(211, 199, 175, 0.75);">
+             <h3 style="margin:0 0 12px;">SetUp</h3>
+             <div style="display:flex;flex-direction:column;gap:10px;">
+               <div>
+                 <label for="setupText" class="field-label">Description / Steps</label>
+                 <div id="setupText" contenteditable="true" class="setup-richtext" style="min-height:60px;padding:8px 10px;border:1px solid #d3c7af;border-radius:8px;background:#fff;"></div>
+               </div>
+               <div>
+                 <label class="field-label">Screenshots</label>
+                 <div id="setupScreenshots" class="setup-screenshots-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                 <button id="addSetupScreenshotButton" type="button" class="secondary" style="margin-top:6px;">Add Screenshot</button>
+               </div>
+               <div>
+                 <label for="setupLinks" class="field-label">Related Links</label>
+                 <input id="setupLinks" type="text" placeholder="https://example.com, ..." style="width:100%;padding:8px 10px;border:1px solid #d3c7af;border-radius:8px;">
+               </div>
+             </div>
+           </section>
+          <div class="toggle-row">
+            <div>
+              <h3>Capture Mode</h3>
+              <p>Disable auto-capture if you are exploring instead of recording a strict test path.</p>
+            </div>
+            <label class="switch">
+              <input id="autoCaptureToggle" type="checkbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="shortcut-hint">Shortcuts: Ctrl+Shift+V for voice annotation on the latest screenshot, Ctrl+Shift+S for manual screenshot import.</p>
+          <button id="addScreenshotButton" class="secondary block">Add Manual Screenshot</button>
+          <button id="pasteScreenshotButton" class="secondary block">Paste Screenshot</button>
+          <div class="recording-controls">
+            <button id="startRecordingButton" class="secondary">Start Recording</button>
+            <button id="pauseRecordingButton" class="ghost">Pause</button>
+            <button id="stopRecordingButton" class="ghost">Stop</button>
+          </div>
+          <p id="recordingStatus" class="shortcut-hint">Recorder idle</p>
+          <input id="screenshotInput" type="file" accept="image/*" multiple hidden>
+          <input id="jsonInput" type="file" accept="application/json,text/html,.json,.html" hidden>
+          <input id="excelInput" type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+          <input id="fileInput" type="file" multiple hidden>
+        </section>
+      </aside>
+
+      <section class="panel content">
+        <div class="panel-header">
+          <h2>Tests</h2>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button id="addTestButton" class="primary">Add Test</button>
+            <button id="updateSummaryTableButton" class="ghost" type="button">Update</button>
+          </div>
+        </div>
+
+        <section id="reviewOverview" class="summary-card review-overview hidden"></section>
+
+        <form id="runForm" class="run-form">
+          <input id="runName" type="text" placeholder="Run name">
+          <input id="ownerName" type="text" placeholder="Tester / owner">
+          <input id="queryCount" type="number" min="0" placeholder="Queries raised">
+        </form>
+
+        <div id="testsList" class="tests-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="floatingRecordingControls" class="floating-recording-controls" hidden>
+    <span id="floatingRecordingLabel">Recording in progress</span>
+    <button id="floatingPauseButton" type="button">Pause</button>
+    <button id="floatingStopButton" type="button">Stop</button>
+  </div>
+
+  <template id="testCardTemplate">
+    <article class="test-card" draggable="true">
+      <div class="test-seq-number">Test 1</div>
+      <label class="field-label">Test Scenario</label>
+      <div class="drag-heading">
+        <span class="drag-handle" title="Drag to reorder">::</span>
+          <div class="field-with-format test-title-wrap">
+            <div class="test-title rich-text-field" contenteditable="true" draggable="false" data-placeholder="Describe the test scenario"></div>
+            <div class="field-format-controls">
+              <input class="test-title-color" type="color" value="#000000" title="Text color" />
+              <button class="format-toggle test-title-bold" type="button" aria-label="Toggle bold" title="Bold">B</button>
+            </div>
+          </div>
+      </div>
+      <label class="field-label">Status</label>
+      <select class="test-status">
+        <option value="not-start">Not Start</option>
+        <option value="passed">Passed</option>
+        <option value="query">Query</option>
+        <option value="failed">Failed</option>
+        <option value="blocked">Blocked</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+      <div class="review-row hidden">
+        <select class="review-status">
+          <option value="not-reviewed">Not Reviewed</option>
+          <option value="approved">Approved</option>
+          <option value="needs-changes">Needs Changes</option>
+          <option value="question">Question</option>
+        </select>
+        <span class="review-status-pill">Not Reviewed</span>
+      </div>
+      <label class="field-label">UAT Results</label>
+      <div class="field-with-format">
+          <div class="test-notes rich-text-field" contenteditable="true" draggable="false" data-placeholder="Enter UAT results"></div>
+        <div class="field-format-controls">
+          <input class="test-notes-color" type="color" value="#000000" title="Text color" />
+            <button class="format-toggle test-notes-bold" type="button" aria-label="Toggle bold" title="Bold">B</button>
+        </div>
+      </div>
+      <div class="link-preview test-notes-preview" hidden></div>
+      <textarea class="test-review-comment hidden" rows="3" placeholder="Reviewer comment for this test"></textarea>
+      <div class="test-actions">
+        <button class="secondary add-step" type="button">Add Step</button>
+        <button class="secondary record-video" type="button">Record for this test</button>
+        <button class="record-pause" type="button" style="display:none;background:#fce8f0;color:#8a2050;border:1px solid #e8a8c4;border-radius:999px;padding:11px 16px;cursor:pointer;">Pause</button>
+        <button class="record-stop" type="button" style="display:none;background:#fdecea;color:#8a1c1c;border:1px solid #f0b4b4;border-radius:999px;padding:11px 16px;cursor:pointer;">Stop Recording</button>
+        <button class="secondary attach-shot" type="button">Attach Screenshot</button>
+        <button class="secondary paste-shot" type="button">Paste Screenshot</button>
+        <button class="secondary record-voice" type="button">Voice Annotation</button>
+        <button class="secondary attach-file" type="button">Attach File</button>
+        <button class="ghost remove-test" type="button">Remove</button>
+      </div>
+      <div class="steps-list"></div>
+      <div class="videos-list"></div>
+      <div class="shots-list"></div>
+      <div class="files-list"></div>
+    </article>
+  </template>
+
+  <template id="stepTemplate">
+    <section class="step-item">
+      <div class="step-row" draggable="true">
+        <span class="step-index"></span>
+        <div class="field-with-format step-field-wrap">
+            <div class="step-input rich-text-field" contenteditable="true" draggable="false" data-placeholder="Describe a step or observation"></div>
+          <div class="field-format-controls">
+            <input class="step-color" type="color" value="#000000" title="Text color" />
+              <button class="format-toggle step-bold" type="button" aria-label="Toggle bold" title="Bold">B</button>
+          </div>
+        </div>
+        <button class="ghost record-step" type="button">Record Step</button>
+        <button class="secondary add-step-inline" type="button">Add Step</button>
+        <button class="ghost remove-step" type="button">Delete</button>
+      </div>
+      <div class="link-preview step-link-preview" hidden></div>
+      <div class="step-shots media-drop-zone" data-empty-label="Drop screenshots here"></div>
+      <div class="step-videos"></div>
+    </section>
+  </template>
+
+  <template id="shotTemplate">
+    <section class="shot-card" draggable="true">
+      <img class="shot-image" alt="Attached screenshot preview">
+      <div class="shot-body">
+        <div class="shot-header">
+          <div class="drag-heading">
+            <span class="drag-handle" title="Drag to reorder">::</span>
+            <strong class="shot-name"></strong>
+          </div>
+          <span class="pill suggestion hidden">Suggested annotation</span>
+        </div>
+        <label class="field-label">Description</label>
+        <textarea class="shot-annotation" rows="3" placeholder="Add annotation or dictate it via voice."></textarea>
+        <div class="link-preview" hidden></div>
+        <textarea class="review-comment hidden" rows="3" placeholder="Reviewer comment"></textarea>
+        <div class="shot-footer">
+          <small class="shot-meta"></small>
+          <div class="shot-actions">
+            <select class="move-target" aria-label="Move screenshot to step"></select>
+            <button class="ghost move-media" type="button">Move</button>
+            <button class="secondary edit-shot" type="button">Draw</button>
+            <button class="ghost remove-shot" type="button">Remove</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <template id="videoTemplate">
+    <section class="shot-card video-card">
+      <video class="video-preview" controls></video>
+      <div class="shot-body">
+        <div class="shot-header">
+          <strong class="video-name"></strong>
+          <span class="pill muted">Screen Recording</span>
+        </div>
+        <label class="field-label highlight-label">Subject</label>
+        <div class="field-with-format">
+            <div class="video-subject highlight-field rich-text-field" contenteditable="true" draggable="false" data-placeholder="Add a subject for this video"></div>
+          <div class="field-format-controls">
+            <input class="video-subject-color" type="color" value="#000000" title="Text color" />
+              <button class="format-toggle video-subject-bold" type="button" aria-label="Toggle bold" title="Bold">B</button>
+          </div>
+        </div>
+        <label class="field-label">Description</label>
+        <div class="field-with-format">
+            <div class="video-notes rich-text-field" contenteditable="true" draggable="false" data-placeholder="Add notes about this recording"></div>
+          <div class="field-format-controls">
+            <input class="video-notes-color" type="color" value="#000000" title="Text color" />
+              <button class="format-toggle video-notes-bold" type="button" aria-label="Toggle bold" title="Bold">B</button>
+          </div>
+        </div>
+        <div class="link-preview" hidden></div>
+        <div class="shot-footer">
+          <small class="video-meta"></small>
+          <div class="shot-actions">
+            <select class="move-target" aria-label="Move video to step"></select>
+            <button class="ghost move-media" type="button">Move</button>
+            <button class="ghost remove-video" type="button">Remove</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <dialog id="drawingDialog" class="drawing-dialog">
+    <form method="dialog" class="drawing-shell">
+      <div class="drawing-header">
+        <div>
+          <p class="eyebrow">Screenshot Markup</p>
+          <h2 id="drawingTitle">Annotate Screenshot</h2>
+        </div>
+        <button class="ghost" type="submit">Close</button>
+      </div>
+
+      <div class="drawing-toolbar">
+        <label>
+          Tool
+          <select id="markupTool">
+            <option value="pen">Pen</option>
+            <option value="arrow">Arrow</option>
+            <option value="rectangle">Rectangle</option>
+            <option value="highlight">Highlight</option>
+            <option value="text">Text</option>
+            <option value="callout">Callout</option>
+          </select>
+        </label>
+        <label>
+          Color
+          <input id="penColor" type="color" value="#d94841">
+        </label>
+        <label>
+          Size
+          <input id="penSize" type="range" min="2" max="18" value="5">
+        </label>
+        <label id="textLabel" class="text-label hidden">
+          Text
+          <textarea id="textInput" rows="2" placeholder="Callout or text box content"></textarea>
+        </label>
+        <label id="selectedTextLabel" class="text-label hidden">
+          Selected Item Text
+          <textarea id="selectedTextInput" rows="2" placeholder="Edit selected text or callout content"></textarea>
+        </label>
+        <span class="shortcut-chip">Shortcuts: P Pen, A Arrow, R Rectangle, H Highlight, T Text, C Callout, Delete Remove</span>
+        <button id="toggleHelpButton" class="ghost" type="button">Help</button>
+        <button id="duplicateItemButton" class="secondary" type="button">Duplicate</button>
+        <button id="copyItemButton" class="ghost" type="button">Copy</button>
+        <button id="pasteItemButton" class="ghost" type="button">Paste</button>
+        <button id="undoStrokeButton" class="secondary" type="button">Undo</button>
+        <button id="clearDrawingButton" class="ghost" type="button">Clear</button>
+        <button id="saveDrawingButton" class="primary" type="button">Save Markup</button>
+      </div>
+
+      <aside id="drawingHelpPanel" class="drawing-help hidden">
+        <h3>Markup Help</h3>
+        <ul>
+          <li>Select an item by clicking it, then drag to move it.</li>
+          <li>Resize with corner handles. Text items use the side handle to change width and wrap.</li>
+          <li>Items snap to image center lines and nearby item edges while dragging.</li>
+          <li>Use callouts for numbered steps with optional explanatory text.</li>
+          <li>Shortcuts: P pen, A arrow, R rectangle, H highlight, T text, C callout, Delete remove, Ctrl+Z undo, Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, F1 help.</li>
+        </ul>
+      </aside>
+
+      <div id="drawingViewport" class="drawing-viewport">
+        <img id="drawingImage" class="drawing-image" alt="Screenshot for annotation">
+        <canvas id="drawingCanvas" class="drawing-canvas"></canvas>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reviewDialog" class="drawing-dialog">
+    <form method="dialog" class="drawing-shell">
+      <div class="drawing-header">
+        <div>
+          <p class="eyebrow">Review Mode</p>
+          <h2>Reviewer Comments</h2>
+        </div>
+        <button class="ghost" type="submit">Close</button>
+      </div>
+      <p class="shortcut-hint">Review mode adds comment fields to each screenshot and includes them in the HTML summary export.</p>
+      <div id="reviewSummary" class="summary-card"></div>
+      <p class="shortcut-hint">Review layout is read-only for test authoring fields. Reviewers can set outcome statuses and add comments only.</p>
+    </form>
+  </dialog>
+
+  <dialog id="mediaPreviewDialog" class="media-preview-dialog">
+    <form method="dialog" class="media-preview-shell">
+      <div class="media-preview-header">
+        <h2 id="mediaPreviewTitle">Preview</h2>
+        <button id="closeMediaPreviewButton" class="ghost" type="submit">Close</button>
+      </div>
+      <div class="media-preview-body">
+        <img id="mediaPreviewImage" class="media-preview-image hidden" alt="Preview image">
+        <video id="mediaPreviewVideo" class="media-preview-video hidden" controls playsinline></video>
+      </div>
+    </form>
+  </dialog>
+
+  <button id="saveRunTopButton" class="bottom-save-run" aria-label="Save" title="Save run">💾 Save</button>
+  <button id="bottomAddTestButton" class="bottom-add-test" aria-label="Add Test" title="Add Test">+ Add Test</button>
+  <button id="mainBackToTopButton" class="main-back-to-top" aria-label="Back to top" title="Back to top" hidden>↑</button>
+
+  <aside id="floatingSummaryNav" class="floating-summary-nav hidden" aria-label="Consolidated Test Summary Navigation">
+    <div class="floating-summary-nav-header">
+      <h3>Consolidated Test Summary</h3>
+      <button id="updateFloatingSummaryButton" class="secondary" type="button">Update</button>
+    </div>
+    <div id="floatingSummaryNavBody" class="floating-summary-nav-body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
