@@ -855,6 +855,32 @@ body.review-mode #autoCaptureToggle {
   font-weight: 600;
 }
 
+.shot-size-control {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0 4px;
+}
+
+.shot-size-control .field-label {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.shot-size-range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.shot-size-value {
+  min-width: 54px;
+  text-align: right;
+  font-size: 0.84rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .shot-actions {
   justify-content: flex-end;
 }
@@ -880,10 +906,14 @@ body.review-mode #autoCaptureToggle {
 }
 
 .drawing-shell {
+  position: relative;
+  isolation: isolate;
   padding: 20px;
 }
 
 .drawing-header {
+  position: relative;
+  z-index: 2;
   margin-bottom: 16px;
 }
 
@@ -892,6 +922,8 @@ body.review-mode #autoCaptureToggle {
 }
 
 .drawing-toolbar {
+  position: relative;
+  z-index: 2;
   justify-content: flex-start;
   flex-wrap: wrap;
   margin-bottom: 16px;
@@ -914,6 +946,8 @@ body.review-mode #autoCaptureToggle {
 }
 
 .drawing-help {
+  position: relative;
+  z-index: 2;
   margin-bottom: 16px;
   padding: 14px 16px;
   border-radius: 18px;
@@ -957,6 +991,7 @@ body.review-mode #autoCaptureToggle {
 
 .drawing-viewport {
   position: relative;
+  z-index: 1;
   max-height: 70vh;
   overflow: auto;
   border-radius: 20px;
@@ -1251,4 +1286,12 @@ body.review-mode #autoCaptureToggle {
 .file-card .file-meta {
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+.drawing-dialog .drawing-header button,
+.drawing-dialog .drawing-toolbar button,
+.media-preview-header button {
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
 }

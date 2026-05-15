@@ -211,6 +211,11 @@
         <label class="field-label">Description</label>
         <textarea class="shot-annotation" rows="3" placeholder="Add annotation or dictate it via voice."></textarea>
         <div class="link-preview" hidden></div>
+        <div class="shot-size-control">
+          <label class="field-label">Screenshot Size</label>
+          <input class="shot-size-range" type="range" min="120" max="520" step="10" value="180" aria-label="Screenshot size in pixels">
+          <span class="shot-size-value">180px</span>
+        </div>
         <textarea class="review-comment hidden" rows="3" placeholder="Reviewer comment"></textarea>
         <div class="shot-footer">
           <small class="shot-meta"></small>
@@ -269,7 +274,7 @@
           <p class="eyebrow">Screenshot Markup</p>
           <h2 id="drawingTitle">Annotate Screenshot</h2>
         </div>
-        <button class="ghost" type="submit">Close</button>
+        <button id="closeDrawingDialogButton" class="ghost" type="button">Close</button>
       </div>
 
       <div class="drawing-toolbar">
@@ -347,7 +352,7 @@
     <form method="dialog" class="media-preview-shell">
       <div class="media-preview-header">
         <h2 id="mediaPreviewTitle">Preview</h2>
-        <button id="closeMediaPreviewButton" class="ghost" type="submit">Close</button>
+        <button id="closeMediaPreviewButton" class="ghost" type="button">Close</button>
       </div>
       <div class="media-preview-body">
         <img id="mediaPreviewImage" class="media-preview-image hidden" alt="Preview image">
